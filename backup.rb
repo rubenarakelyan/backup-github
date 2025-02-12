@@ -6,6 +6,7 @@ gemfile do
   gem "thor", "~> 1.3.2"
   gem "rainbow", "~> 3.1.1"
   gem "octokit", "~> 9.2.0"
+  gem "faraday-retry", "~> 2.2.1"
 end
 
 class BackupGitHub < Thor
