@@ -1,6 +1,10 @@
-# GitHub Backup
+# Backup GitHub
 
 A simple Ruby command line script that downloads zip files of all your GitHub repositories and Gists for backup purposes.
+
+## Setup
+
+Ensure you have the correct Ruby version and the `bundler` gem installed. All other gems will be installed automatically the first time you run the script.
 
 ## Configuration
 
@@ -31,4 +35,4 @@ For each gist, the script will download a zip file containing the latest version
 
 Most errors are captured and presented with as much information as possible.
 
-If you start seeing `403` errors, it's very likely that you've hit a rate limit. Try again later, and consider increasing the sleep between each request.
+If you start seeing `403` errors, it's very likely that you've hit a rate limit. Try again later, and consider increasing the sleep duration between each request.
