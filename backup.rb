@@ -32,24 +32,10 @@ class BackupGitHub < Thor
   desc "backup-repos", "Back up GitHub repositories"
   option :private_repos, type: :boolean
   def backup_repos
-    config = YAML.safe_load_file("config.yaml")
+    load_and_validate_config!
+    version_data = load_version_data(type: "repositories")
 
-    if config["github_access_token"].nil? || config["github_access_token"].empty?
-      puts "GitHub access token not found - run `ruby backup.rb config` to set.".red
-      exit
-    end
-
-    if config["backup_directory"].nil? || config["backup_directory"].empty?
-      puts "Backup directory not found - run `ruby backup.rb config` to set.".red
-      exit
-    end
-
-    if !File.directory?(config["backup_directory"])
-      puts "Backup directory does not exist.".red
-      exit
-    end
-
-    client = Octokit::Client.new(access_token: config["github_access_token"])
+    client = Octokit::Client.new(access_token: @config["github_access_token"])
     client.auto_paginate = true
 
     repos = client.repos(client.user, { affiliation: "owner", visibility: options[:private_repos] ? "all" : "public" })
@@ -63,13 +49,20 @@ class BackupGitHub < Thor
     puts
 
     repos.each do |repo|
+      if repo.pushed_at == version_data[repo.name]
+        puts "Skipping #{repo.name} because it hasn't changed".green
+        puts
+        next
+      end
+
       archive_url = client.archive_link(repo.full_name, { format: "zipball" })
       puts "Downloading from #{archive_url}..."
       response = Faraday.get(archive_url)
 
       if response.status == 200
         filename = response.headers["content-disposition"].sub("attachment; filename=", "")
-        File.write("#{config["backup_directory"]}/#{filename}", response.body)
+        File.write("#{@config['backup_directory']}/#{filename}", response.body)
+        version_data[repo.name] = repo.pushed_at
         puts "Downloaded as #{filename}".green
       else
         puts "Received unexpected HTTP status #{response.status}".red
@@ -80,9 +73,9 @@ class BackupGitHub < Thor
       sleep 1 # try not to hit the rate limit
     end
 
+    save_version_data(type: "repositories", data: version_data)
+
     puts "Done".green
-  rescue Errno::ENOENT
-    puts "Config file not found - run `ruby backup.rb config` to create.".red
   rescue Octokit::Unauthorized
     puts "GitHub access token incorrect.".red
   rescue Faraday::Error => e
@@ -91,24 +84,10 @@ class BackupGitHub < Thor
 
   desc "backup-gists", "Back up GitHub Gists"
   def backup_gists
-    config = YAML.safe_load_file("config.yaml")
+    load_and_validate_config!
+    version_data = load_version_data(type: "gists")
 
-    if config["github_access_token"].nil? || config["github_access_token"].empty?
-      puts "GitHub access token not found - run `ruby backup.rb config` to set.".red
-      exit
-    end
-
-    if config["backup_directory"].nil? || config["backup_directory"].empty?
-      puts "Backup directory not found - run `ruby backup.rb config` to set.".red
-      exit
-    end
-
-    if !File.directory?(config["backup_directory"])
-      puts "Backup directory does not exist.".red
-      exit
-    end
-
-    client = Octokit::Client.new(access_token: config["github_access_token"])
+    client = Octokit::Client.new(access_token: @config["github_access_token"])
     client.auto_paginate = true
 
     gists = client.gists
@@ -124,6 +103,12 @@ class BackupGitHub < Thor
     puts
 
     gists.each do |gist|
+      if gist.updated_at == version_data[gist.id]
+        puts "Skipping #{gist.id} because it hasn't changed".green
+        puts
+        next
+      end
+
       full_gist = client.gist(gist.id)
       archive_url = "https://gist.github.com/#{username}/#{full_gist.id}/archive/#{full_gist.history[0].version}.zip"
       puts "Downloading from #{archive_url}..."
@@ -132,7 +117,8 @@ class BackupGitHub < Thor
       if response.status == 302
         redirected_response = Faraday.get(response.headers["location"])
         filename = redirected_response.headers["content-disposition"].sub("attachment; filename=", "")
-        File.write("#{config["backup_directory"]}/#{filename}", redirected_response.body)
+        File.write("#{@config['backup_directory']}/#{filename}", redirected_response.body)
+        version_data[gist.id] = gist.updated_at
         puts "Downloaded as #{filename}".green
       else
         puts "Received unexpected HTTP status #{response.status}".red
@@ -143,13 +129,57 @@ class BackupGitHub < Thor
       sleep 1 # try not to hit the rate limit
     end
 
+    save_version_data(type: "gists", data: version_data)
+
     puts "Done".green
-  rescue Errno::ENOENT
-    puts "Config file not found - run `ruby backup.rb config` to create.".red
   rescue Octokit::Unauthorized
     puts "GitHub access token incorrect.".red
   rescue Faraday::Error => e
     puts "Error making request: #{e.message}".red
+  end
+
+  no_commands do
+    def load_and_validate_config!
+      @config = YAML.safe_load_file("config.yaml")
+
+      if @config["github_access_token"].nil? || @config["github_access_token"].empty?
+        puts "GitHub access token not found - run `ruby backup.rb config` to set.".red
+        exit
+      end
+
+      if @config["backup_directory"].nil? || @config["backup_directory"].empty?
+        puts "Backup directory not found - run `ruby backup.rb config` to set.".red
+        exit
+      end
+
+      if !File.directory?(@config["backup_directory"])
+        puts "Backup directory does not exist.".red
+        exit
+      end
+    rescue Errno::ENOENT
+      puts "Config file not found - run `ruby backup.rb config` to create.".red
+      exit
+    end
+
+    def load_version_data(type:)
+      filename = version_data_filename(type: type)
+
+      if File.exist?(filename)
+        YAML.safe_load_file(filename, permitted_classes: [Time])
+      else
+        {}
+      end
+    end
+
+    def save_version_data(type:, data:)
+      if File.write(version_data_filename(type: type), data.to_yaml) == 0
+        puts "Error saving version data - everything will be downloaded again next time".red
+      end
+    end
+
+    def version_data_filename(type:)
+      "#{@config['backup_directory']}/#{type}.yaml"
+    end
   end
 
   def self.exit_on_failure?
