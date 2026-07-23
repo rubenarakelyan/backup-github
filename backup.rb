@@ -3,10 +3,10 @@ require "yaml"
 
 gemfile do
   source "https://rubygems.org"
-  gem "thor", "~> 1.3.2"
+  gem "thor", "~> 1.5.0"
   gem "rainbow", "~> 3.1.1"
-  gem "octokit", "~> 9.2.0"
-  gem "faraday-retry", "~> 2.2.1"
+  gem "octokit", "~> 10.0.0"
+  gem "faraday-retry", "~> 2.4.0"
 end
 
 class BackupGitHub < Thor
